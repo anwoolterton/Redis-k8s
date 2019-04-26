@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Name }}
+---
+# Note we are using stateful sets, otherwise you cannot persist data volumes in Kubernetes
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Name }}
+  labels:
+    run: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      run: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        run: {{ .Release.Name }}
+    spec:
+      containers:
+      - name: {{ .Release.Name }}-storage
+        image: {{ .Values.imageRegistry }}:{{ .Values.imageTag }}  
+        ports:
+        - containerPort: 6379
+          protocol: TCP
+        volumeMounts:
+          - name: {{ .Release.Name }}-storage
+            mountPath: /data
+        resources: {}
+        terminationMessagePath: "/dev/termination-log"
+        terminationMessagePolicy: File
+        imagePullPolicy: Always
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext: {}
+      schedulerName: default-scheduler
+      volumes:
+        - name: {{ .Release.Name }}-storage
+          hostPath:
+            path: /data//{{ .Release.Name }}-storage
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 2147483647
+  volumeClaimTemplates:
+   - metadata:
+       name: {{ .Release.Name }}-storage
+     spec:
+       accessModes: [ "ReadWriteOnce" ]
+       storageClassName: {{ .Release.Name }}-storage
+       resources:
+         requests:
+           storage: 100Mi
+---
+#persistent storage, this is mapped above.
+#Setup Storage Class based on environment.
+{{ if eq .Values.disk "mini" }}
+#MiniKube Vol
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-storage
+  namespace: {{ .Release.Name }}
+  annotations:
+    storageclass.beta.kubernetes.io/is-default-class: "true"
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+provisioner: k8s.io/minikube-hostpath
+{{else}}
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-storage
+  namespace: {{ .Release.Name }}
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+reclaimPolicy: Retain
+mountOptions:
+  - debug
+{{end}}
+---
+#CronPod running set command against redis cluster
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Name }}
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: dataloader
+            image: {{ .Values.imageRegistry }}:{{ .Values.imageTag }}
+            args:
+            - /bin/sh
+            - -c
+            - redis-cli -h {{ .Release.Name }}-0 SET hello world
+          restartPolicy: OnFailure

@@ -1,0 +1,7 @@
+
+#  Set to 1 as requested.
+replicas: 1
+
+imageRegistry: redis
+imageTag: latest
+disk: mini
