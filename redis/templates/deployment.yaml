@@ -43,6 +43,7 @@ spec:
         - name: {{ .Release.Name }}-storage
           hostPath:
             path: /data//{{ .Release.Name }}-storage
+      nodeName: minikube
   revisionHistoryLimit: 10
   progressDeadlineSeconds: 2147483647
   volumeClaimTemplates:
